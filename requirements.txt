@@ -1,36 +1,25 @@
 fastapi
-uvicorn
+uvicorn[standard]
 python-multipart
 docker
-pydantic
 groq
 python-dotenv
 
 # Database
 sqlalchemy
-asyncpg
 psycopg2-binary
 
 # Auth & Passwords
 passlib[argon2]
-argon2-cffi
 python-jose
 
 # AI/ML components
-numpy
-scipy
-scikit-learn
-
-# Sentence Transformers for local embeddings (all-MiniLM)
+# Note: numpy/scipy/sklearn may be installed by sentence-transformers, but we let it manage its own deps
 sentence-transformers
 
 # Qdrant Cloud - Vector database for RAG
 qdrant-client
 
-# Code analysis
-networkx
-
 # Utilities
 httpx
-aiofiles
 websockets

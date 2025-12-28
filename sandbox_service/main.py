@@ -44,7 +44,7 @@ class ExecutionResult(BaseModel):
     stdout: str
     stderr: str
     success: bool
-    error: str = None
+    error: str = ""
 
 def execute_code_worker(code, stdin_input, result_queue):
     # (Giữ nguyên logic cũ của bạn ở đây)
@@ -90,7 +90,7 @@ async def run_code(request: CodeRequest):
         return ExecutionResult(stdout="", stderr="Time Limit Exceeded", success=False, error="Timeout")
     if not queue.empty():
         result = queue.get()
-        return ExecutionResult(stdout=result["stdout"], stderr=result["stderr"], success=result["success"], error=result["error"])
+        return ExecutionResult(stdout=result["stdout"], stderr=result["stderr"], success=result["success"], error=str(result["error"] or ""))
     return ExecutionResult(stdout="", stderr="Crash", success=False, error="Crash")
 
 

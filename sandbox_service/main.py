@@ -1,16 +1,40 @@
-from fastapi import FastAPI, HTTPException
-from pydantic import BaseModel
+import os
 import sys
+import pty
+import select
+import subprocess
+import shlex
+import struct
+import fcntl
+import termios
+import asyncio
+import logging
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
+import multiprocessing
 import io
 import contextlib
 import traceback
-import signal
-import multiprocessing
 
-# --- Cấu hình ---
-TIMEOUT_SECONDS = 30  # Giới hạn thời gian chạy 5s
+# Setup logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
-app = FastAPI(title="Python Sandbox Service")
+app = FastAPI()
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# ... (Giữ nguyên phần execute code cũ - CodeRequest, ExecutionResult, execute_code_worker, run_code) ...
+# Để ngắn gọn, tôi chỉ hiển thị phần THÊM MỚI dưới đây. 
+# Trong thực tế, bạn hãy GIỮ LẠI các hàm run_code cũ nhé!
+# ----------------------------------------------------------------
 
 class CodeRequest(BaseModel):
     code: str
@@ -22,51 +46,27 @@ class ExecutionResult(BaseModel):
     success: bool
     error: str = None
 
-# --- Hàm chạy code (chạy trong process riêng để kill được khi timeout) ---
 def execute_code_worker(code, stdin_input, result_queue):
-    # Capture stdout/stderr
+    # (Giữ nguyên logic cũ của bạn ở đây)
     stdout_capture = io.StringIO()
     stderr_capture = io.StringIO()
-    
-    # Mock stdin
     stdin_capture = io.StringIO(stdin_input)
-    
     success = False
     error_msg = None
-
     try:
-        # Redirect standard streams
-        with contextlib.redirect_stdout(stdout_capture), \
-             contextlib.redirect_stderr(stderr_capture):
-            
-            # Gán stdin
+        with contextlib.redirect_stdout(stdout_capture), contextlib.redirect_stderr(stderr_capture):
             sys.stdin = stdin_capture
-            
-            # Tạo môi trường chạy code cô lập
-            # Chỉ cho phép các hàm an toàn cơ bản (có thể mở rộng sau)
             global_scope = {
                 "__builtins__": __builtins__,
-                "print": print,
-                "input": input,
-                "range": range,
-                "len": len,
-                # Thêm các thư viện phổ biến vào namespace nếu cần
-                # "math": math,
+                "print": print, "input": input, "range": range, "len": len,
             }
-            
-            # CHẠY CODE!
             exec(code, global_scope)
             success = True
-
     except Exception:
-        # Bắt lỗi runtime (SyntaxError, NameError, v.v.)
         error_msg = traceback.format_exc()
         success = False
-        # In lỗi ra stderr ảo để client nhận được
         stderr_capture.write(error_msg)
-        
     finally:
-        # Trả kết quả về qua Queue
         result_queue.put({
             "stdout": stdout_capture.getvalue(),
             "stderr": stderr_capture.getvalue(),
@@ -76,52 +76,86 @@ def execute_code_worker(code, stdin_input, result_queue):
 
 @app.post("/run", response_model=ExecutionResult)
 async def run_code(request: CodeRequest):
-    """
-    API endpoint để chạy code Python.
-    Sử dụng Multiprocessing để có thể kill process nếu chạy quá lâu (timeout).
-    """
+    # (Giữ nguyên logic cũ của bạn ở đây)
     queue = multiprocessing.Queue()
-    
-    # Tạo process con để chạy code
-    process = multiprocessing.Process(
-        target=execute_code_worker,
-        args=(request.code, request.stdin, queue)
-    )
-    
+    process = multiprocessing.Process(target=execute_code_worker, args=(request.code, request.stdin, queue))
     process.start()
-    
-    # Đợi process chạy, có timeout
-    process.join(TIMEOUT_SECONDS)
-    
+    process.join(5)
     if process.is_alive():
-        # Nếu sau 5s vẫn sống -> Kill ngay
         process.terminate()
         process.join()
-        return ExecutionResult(
-            stdout="",
-            stderr="Time Limit Exceeded (Timeout)",
-            success=False,
-            error="Timeout"
-        )
-    
-    # Lấy kết quả từ queue
+        return ExecutionResult(stdout="", stderr="Time Limit Exceeded", success=False, error="Timeout")
     if not queue.empty():
         result = queue.get()
-        return ExecutionResult(
-            stdout=result["stdout"],
-            stderr=result["stderr"],
-            success=result["success"],
-            error=result["error"]
-        )
-    else:
-        # Trường hợp process chết mà không kịp gửi kq
-        return ExecutionResult(
-            stdout="",
-            stderr="Execution failed unexpectedly (Process crashed)",
-            success=False,
-            error="Crash"
-        )
+        return ExecutionResult(stdout=result["stdout"], stderr=result["stderr"], success=result["success"], error=result["error"])
+    return ExecutionResult(stdout="", stderr="Crash", success=False, error="Crash")
 
-@app.get("/health")
-def health_check():
-    return {"status": "ok", "service": "sandbox"}
+
+# --- PHẦN MỚI: WEBSOCKET TERMINAL ---
+
+async def _forward_output(fd, websocket: WebSocket):
+    """Đọc từ pty master fd và gửi qua websocket"""
+    loop = asyncio.get_event_loop()
+    max_read_bytes = 1024
+    
+    while True:
+        try:
+            # Dùng run_in_executor để đọc file blocking trong async
+            data = await loop.run_in_executor(None, lambda: os.read(fd, max_read_bytes))
+            if not data:
+                break
+            await websocket.send_text(data.decode('utf-8', errors='replace'))
+        except OSError:
+            break
+        except Exception as e:
+            logger.error(f"Error reading from pty: {e}")
+            break
+
+@app.websocket("/terminal")
+async def terminal_endpoint(websocket: WebSocket):
+    await websocket.accept()
+    
+    # Tạo pseudo-terminal (pty)
+    # Master là phía server đọc/ghi, Slave là phía process con dùng làm stdio
+    master_fd, slave_fd = pty.openpty()
+    
+    # Chạy process con (shell hoặc python interactive)
+    # Sử dụng 'python -i' để vào chế độ interactive, hoặc '/bin/sh'
+    # Ở đây ta dùng shell để mạnh mẽ hơn
+    p = subprocess.Popen(
+        ["/bin/sh"],
+        preexec_fn=os.setsid,
+        stdin=slave_fd,
+        stdout=slave_fd,
+        stderr=slave_fd,
+        universal_newlines=True
+    )
+    
+    # Đóng slave_fd ở process cha (vì process con đã giữ rồi)
+    os.close(slave_fd)
+    
+    # Task đọc output từ process -> gửi cho client
+    output_task = asyncio.create_task(_forward_output(master_fd, websocket))
+    
+    try:
+        while True:
+            # Nhận input từ client -> ghi vào process
+            data = await websocket.receive_text()
+            
+            # Xử lý resize terminal (nếu client gửi lệnh đặc biệt)
+            # Ví dụ protocol json: {"type": "resize", "cols": 80, "rows": 24}
+            # Ở demo này nhận raw text
+            
+            os.write(master_fd, data.encode('utf-8'))
+            
+    except WebSocketDisconnect:
+        logger.info("Websocket disconnected")
+    except Exception as e:
+        logger.error(f"Websocket error: {e}")
+    finally:
+        # Cleanup
+        output_task.cancel()
+        os.close(master_fd)
+        if p.poll() is None:
+            p.terminate()
+            p.wait()

@@ -74,4 +74,4 @@ ENABLE_WS_TERMINAL: bool = os.getenv("ENABLE_WS_TERMINAL", "true").lower() in ("
 # AI warm-up
 # Embedding model (SentenceTransformer) khá nặng, lần đầu load sẽ chậm.
 # Warm-up giúp giảm độ trễ lần đầu khi vào Admin/hint/chat (đổi lại tốn CPU/RAM sớm hơn).
-WARMUP_AI_ON_STARTUP: bool = True
+WARMUP_AI_ON_STARTUP: bool = os.getenv("WARMUP_AI_ON_STARTUP", "false").lower() in ("1", "true", "yes", "y")

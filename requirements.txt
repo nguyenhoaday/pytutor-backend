@@ -11,6 +11,11 @@ sqlalchemy
 asyncpg
 psycopg2-binary
 
+# Auth & Passwords
+passlib[argon2]
+argon2-cffi
+python-jose
+
 # AI/ML components
 numpy
 scipy
@@ -28,6 +33,4 @@ networkx
 # Utilities
 httpx
 aiofiles
-passlib
-python-jose
 websockets

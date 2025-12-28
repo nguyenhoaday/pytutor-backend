@@ -1,0 +1,32 @@
+fastapi
+uvicorn
+python-multipart
+docker
+pydantic
+groq
+python-dotenv
+
+# Database
+sqlalchemy
+asyncpg
+psycopg2-binary
+
+# AI/ML components
+numpy
+scipy
+scikit-learn
+
+# Sentence Transformers for local embeddings (all-MiniLM)
+sentence-transformers
+
+# Qdrant Cloud - Vector database for RAG
+qdrant-client
+
+# Code analysis
+networkx
+
+# Utilities
+httpx
+aiofiles
+passlib
+python-jose

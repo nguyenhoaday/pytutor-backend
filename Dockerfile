@@ -1,19 +1,28 @@
-FROM python:3.11-alpine
+FROM python:3.11-slim
 
 WORKDIR /app
 
-RUN pip install --no-cache-dir \
-    fastapi==0.104.1 \
-    uvicorn==0.24.0 \
-    python-multipart==0.0.6 \
-    docker==7.0.0 \
-    pydantic==2.5.0
+# Cài đặt các thư viện hệ thống cần thiết 
+RUN apt-get update && apt-get install -y \
+    libpq-dev \
+    gcc \
+    && rm -rf /var/lib/apt/lists/*
 
+# Copy requirements trước để tận dụng Docker Cache
+COPY requirements.txt .
+
+# Cài đặt Python serve dependencies
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Copy toàn bộ code backend vào
 COPY . .
 
+# Expose port
 EXPOSE 8000
 
-HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
+# Healthcheck
+HEALTHCHECK --interval=30s --timeout=5s --start-period=5s --retries=3 \
     CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')" || exit 1
 
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
+# Lệnh chạy default
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]

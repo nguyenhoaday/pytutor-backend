@@ -50,6 +50,9 @@ def execute_code_worker(code, stdin_input, result_queue):
     # (Giữ nguyên logic cũ của bạn ở đây)
     stdout_capture = io.StringIO()
     stderr_capture = io.StringIO()
+    # Chuẩn hóa input: thay thế literal \n thành xuống dòng thật nếu cần
+    if stdin_input:
+        stdin_input = stdin_input.replace("\\n", "\n")
     stdin_capture = io.StringIO(stdin_input)
     success = False
     error_msg = None
